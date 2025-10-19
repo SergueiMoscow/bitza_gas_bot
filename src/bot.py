@@ -7,11 +7,11 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from telegram.constants import ParseMode
 from dotenv import load_dotenv
 
+sys.path.append(os.path.dirname(__file__))
+
 from database import Database
 from parser import MessageParser
 from models import GasRecord
-
-sys.path.append(os.path.dirname(__file__))
 
 # Загрузка переменных окружения
 load_dotenv()
