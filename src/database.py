@@ -5,7 +5,7 @@ import os
 
 
 class Database:
-    def __init__(self, db_url="sqlite:///gas_bot.db"):
+    def __init__(self, db_url=os.getenv('DATABASE_URL')):
         self.engine = create_engine(db_url)
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine)
