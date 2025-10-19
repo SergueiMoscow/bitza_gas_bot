@@ -18,7 +18,6 @@ RUN pip install --upgrade pip && \
 
 # Копируем исходный код
 COPY src/ ./src/
-COPY .env ./
 
 # Создаем точку входа
 CMD ["python", "-m", "src.bot"]

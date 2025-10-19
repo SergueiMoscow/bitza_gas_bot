@@ -5,6 +5,8 @@ services:
     volumes:
       - ./src:/app/src
       - ./data:/app/data
+      - ./.env:/app/.env
+
     environment:
       - DATABASE_URL=sqlite:///data/gas_bot.db
     restart: unless-stopped
