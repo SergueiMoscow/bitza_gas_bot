@@ -379,25 +379,26 @@ class GasBot:
         finally:
             session.close()
 
-    def format_record(self, record: GasRecord) -> str:
-        """Форматирует запись для отображения"""
+    def format_record(self, record_data: dict) -> str:
+        """Форматирует запись для отображения из словаря"""
         parts = []
 
-        if record.quantity:
-            sign = "+" if record.quantity > 0 else ""
-            parts.append(f"{sign}{record.quantity} баллон(ов) {record.capacity}л")
+        if record_data.get('quantity') is not None:
+            sign = "+" if record_data['quantity'] > 0 else ""
+            capacity = record_data.get('capacity', 27)
+            parts.append(f"{sign}{record_data['quantity']} баллон(ов) {capacity}л")
 
-        if record.room:
-            parts.append(f"комната {record.room}")
+        if record_data.get('room'):
+            parts.append(f"комната {record_data['room']}")
 
-        if record.amount:
-            parts.append(f"{record.amount} руб")
+        if record_data.get('amount'):
+            parts.append(f"{record_data['amount']} руб")
 
-        if record.receiver:
-            parts.append(f"получил {record.receiver}")
+        if record_data.get('receiver'):
+            parts.append(f"получил {record_data['receiver']}")
 
-        if record.comments:
-            parts.append(f"({record.comments})")
+        if record_data.get('comments'):
+            parts.append(f"({record_data['comments']})")
 
         return " | ".join(parts)
 

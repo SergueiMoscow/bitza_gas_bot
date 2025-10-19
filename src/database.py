@@ -13,23 +13,43 @@ class Database:
     def get_session(self):
         return self.Session()
 
-    def add_record(self, record_data):
-        session = self.get_session()
-        try:
-            # Проверяем, существует ли уже запись с таким message_id
-            existing = session.query(GasRecord).filter_by(message_id=record_data['message_id']).first()
-            if existing:
-                return existing
+    class Database:
+        # ... остальные методы ...
 
-            record = GasRecord(**record_data)
-            session.add(record)
-            session.commit()
-            return record.id
-        except Exception as e:
-            session.rollback()
-            raise e
-        finally:
-            session.close()
+        def add_record(self, record_data):
+            session = self.get_session()
+            try:
+                # Проверяем, существует ли уже запись с таким message_id
+                existing = session.query(GasRecord).filter_by(message_id=record_data['message_id']).first()
+                if existing:
+                    return self.record_to_dict(existing)
+
+                record = GasRecord(**record_data)
+                session.add(record)
+                session.commit()
+                return self.record_to_dict(record)
+            except Exception as e:
+                session.rollback()
+                raise e
+            finally:
+                session.close()
+
+        def record_to_dict(self, record):
+            """Конвертирует объект GasRecord в словарь"""
+            return {
+                'id': record.id,
+                'message_id': record.message_id,
+                'date': record.date,
+                'quantity': record.quantity,
+                'capacity': record.capacity,
+                'room': record.room,
+                'amount': record.amount,
+                'receiver': record.receiver,
+                'comments': record.comments,
+                'linked_record_id': record.linked_record_id,
+                'sender_user_id': record.sender_user_id,
+                'sender_name': record.sender_name
+            }
 
     def get_record_by_id(self, record_id):
         session = self.get_session()
