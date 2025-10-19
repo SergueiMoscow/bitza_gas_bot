@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="header">
+    <h2>📊 Последние движения</h2>
+    <p>Обновлено: {{ current_time }}</p>
+</div>
+
+{% if records %}
+    {% for record in records %}
+    <div class="record {% if record.quantity is not none and record.quantity > 0 %}income{% elif record.quantity is not none and record.quantity < 0 %}outcome{% else %}payment{% endif %}">
+        <div>
+            {% if record.quantity is not none and record.quantity > 0 %}
+                <span class="badge income">+{{ record.quantity }} баллон(ов)</span>
+            {% elif record.quantity is not none and record.quantity < 0 %}
+                <span class="badge outcome">{{ record.quantity }} баллон(ов)</span>
+            {% endif %}
+
+            {% if record.amount is not none %}
+                <span class="badge payment">{{ record.amount }} руб</span>
+            {% endif %}
+        </div>
+
+        <div style="margin-top: 8px;">
+            {% if record.room %}
+                <strong>Комната:</strong> {{ record.room }}<br>
+            {% endif %}
+
+            {% if record.receiver %}
+                <strong>Получил:</strong> {{ record.receiver }}<br>
+            {% endif %}
+
+            {% if record.comments %}
+                <strong>Комментарий:</strong> {{ record.comments }}<br>
+            {% endif %}
+
+            <small style="color: #666;">{{ record.date.strftime('%d.%m.%Y %H:%M') }}</small>
+        </div>
+    </div>
+    {% endfor %}
+{% else %}
+    <div class="empty-state">
+        <h3>📭 Нет записей</h3>
+        <p>Здесь появятся движения баллонов</p>
+    </div>
+{% endif %}
+{% endblock %}

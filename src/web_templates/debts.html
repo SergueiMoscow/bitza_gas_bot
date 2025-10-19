@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="header">
+    <h2>💰 Долги и предоплаты</h2>
+    <p>Неоплаченные баллоны и предоплаты</p>
+</div>
+
+{% if unpaid_balloons or prepayments %}
+    {% if unpaid_balloons %}
+    <h3>🔴 Неоплаченные баллоны</h3>
+    {% for record in unpaid_balloons %}
+    <div class="record outcome">
+        <span class="badge outcome">{{ record.quantity }} баллон(ов)</span>
+        <strong>Комната:</strong> {{ record.room }}<br>
+        <small style="color: #666;">{{ record.date.strftime('%d.%m.%Y %H:%M') }}</small>
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    {% if prepayments %}
+    <h3>🟡 Предоплаты</h3>
+    {% for record in prepayments %}
+    <div class="record payment">
+        <span class="badge payment">{{ record.amount }} руб</span>
+        <strong>Комната:</strong> {{ record.room }}<br>
+        {% if record.receiver %}
+            <strong>Получил:</strong> {{ record.receiver }}<br>
+        {% endif %}
+        <small style="color: #666;">{{ record.date.strftime('%d.%m.%Y %H:%M') }}</small>
+    </div>
+    {% endfor %}
+    {% endif %}
+{% else %}
+    <div class="empty-state">
+        <h3>✅ Всё оплачено</h3>
+        <p>Нет неоплаченных баллонов или предоплат</p>
+    </div>
+{% endif %}
+{% endblock %}

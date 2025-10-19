@@ -10,7 +10,8 @@ requires-python = ">=3.12"
 dependencies = [
     "dotenv (>=0.9.9,<0.10.0)",
     "sqlalchemy (>=2.0.44,<3.0.0)",
-    "python-telegram-bot (>=22.5,<23.0)"
+    "python-telegram-bot (>=22.5,<23.0)",
+    "flask (>=3.1.2,<4.0.0)"
 ]
 
 

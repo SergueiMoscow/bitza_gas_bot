@@ -2,10 +2,12 @@ import os
 import re
 import sys
 
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, WebAppInfo, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from telegram.constants import ParseMode
 from dotenv import load_dotenv
+
+from src.config import WEB_APP_DOMAIN
 
 sys.path.append(os.path.dirname(__file__))
 
@@ -64,6 +66,10 @@ class GasBot:
         self.application.add_handler(CommandHandler("last", self.last_command))
         self.application.add_handler(CommandHandler("my_id", self.my_id_command))
         self.application.add_handler(CommandHandler("users", self.users_command))
+
+        # mini apps handlers
+        self.application.add_handler(CommandHandler("web_last", self.web_last_command))
+        self.application.add_handler(CommandHandler("web_debts", self.web_debts_command))
 
         # Обработчик сообщений о газе
         self.application.add_handler(MessageHandler(
@@ -492,6 +498,46 @@ class GasBot:
         """Запускает бота"""
         print("Бот запущен...")
         self.application.run_polling()
+
+    async def web_last_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Открывает Web App с последними движениями"""
+        user = update.message.from_user
+
+        if not await self.is_user_allowed(user.id):
+            await update.message.reply_text("❌ У вас нет доступа к этому боту.")
+            return
+
+        web_app_url = f"{WEB_APP_DOMAIN}/web_last?user_id={user.id}"
+
+        keyboard = [
+            [InlineKeyboardButton("📊 Открыть последние движения", web_app=WebAppInfo(url=web_app_url))]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(
+            "📱 Откройте мини-приложение для просмотра последних движений:",
+            reply_markup=reply_markup
+        )
+
+    async def web_debts_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Открывает Web App с долгами и висящими записями"""
+        user = update.message.from_user
+
+        if not await self.is_user_allowed(user.id):
+            await update.message.reply_text("❌ У вас нет доступа к этому боту.")
+            return
+
+        web_app_url = f"{WEB_APP_DOMAIN}/web_debts?user_id={user.id}"
+
+        keyboard = [
+            [InlineKeyboardButton("💰 Открыть долги и предоплаты", web_app=WebAppInfo(url=web_app_url))]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(
+            "📱 Откройте мини-приложение для просмотра долгов и предоплат:",
+            reply_markup=reply_markup
+        )
 
 
 if __name__ == '__main__':
