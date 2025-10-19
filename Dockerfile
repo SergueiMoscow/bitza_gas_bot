@@ -2,10 +2,8 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Устанавливаем системные зависимости
-RUN apt-get update && apt-get install -y \
-    postgresql-client \
-    && rm -rf /var/lib/apt/lists/*
+# Обновляем пакеты и чистим кэш в одном RUN (Docker best practice)
+RUN apt-get update && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Копируем файлы зависимостей
 COPY pyproject.toml poetry.lock ./
@@ -14,7 +12,8 @@ COPY pyproject.toml poetry.lock ./
 RUN pip install --upgrade pip && \
     pip install poetry && \
     poetry config virtualenvs.create false && \
-    poetry install --no-dev --no-interaction
+    poetry install --no-root --without test && \
+    pip cache purge
 
 # Копируем исходный код
 COPY src/ ./src/

@@ -8,5 +8,8 @@ services:
       - ./.env:/app/.env
 
     environment:
-      - DATABASE_URL=sqlite:///data/gas_bot.db
+      - DATABASE_URL=${DATABASE_URL}  # берем из .env
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - ADMIN_USER_ID=${ADMIN_USER_ID}
+      - ALLOWED_USER_IDS=${ALLOWED_USER_IDS}
     restart: unless-stopped
