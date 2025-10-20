@@ -1,15 +1,20 @@
 import sys
+import os
+
+sys.path.append(os.path.dirname(__file__))
 
 from flask import Flask, render_template, request, jsonify
 from database import Database
 from datetime import datetime
-import os
-
-from src.config import WEB_APP_DOMAIN
 
 sys.path.append(os.path.dirname(__file__))
 
 from src.models import GasRecord
+
+try:
+    from config import WEB_APP_DOMAIN
+except ImportError:
+    from src.config import WEB_APP_DOMAIN
 
 app = Flask(__name__, template_folder='web_templates')
 db = Database()
