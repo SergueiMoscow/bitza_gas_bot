@@ -9,7 +9,7 @@ from datetime import datetime
 
 sys.path.append(os.path.dirname(__file__))
 
-from src.models import GasRecord
+from models import GasRecord
 
 try:
     from config import WEB_APP_DOMAIN
