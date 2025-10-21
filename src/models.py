@@ -1,10 +1,10 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Float, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, DateTime, Float, ForeignKey, Text
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship, sessionmaker
+from sqlalchemy.orm import relationship
 from datetime import datetime
-import os
 
 Base = declarative_base()
+
 
 class GasRecord(Base):
     __tablename__ = 'gas_records'
@@ -20,8 +20,11 @@ class GasRecord(Base):
     comments = Column(Text)
     linked_record_id = Column(Integer, ForeignKey('gas_records.id'))
 
-    # Новые поля для пользователя
+    # Поля для пользователя
     sender_user_id = Column(Integer)
     sender_name = Column(String(200))
+
+    # Дата оплаты
+    payment_date = Column(DateTime, nullable=True)
 
     linked_record = relationship('GasRecord', remote_side=[id], backref='linked_records')

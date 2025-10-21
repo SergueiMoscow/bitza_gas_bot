@@ -1,6 +1,7 @@
 import os
 import re
 import sys
+from datetime import datetime
 
 from telegram import Update, InlineKeyboardButton, WebAppInfo, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
@@ -24,10 +25,6 @@ import logging
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-# Или можно отключить полностью
-# logging.getLogger("httpx").disabled = True
-# logging.getLogger("httpcore").disabled = True
-
 # Оставляем только важные логи
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -36,6 +33,11 @@ logging.basicConfig(
 
 
 class GasBot:
+    def run(self):
+        """Запускает бота"""
+        print("Бот запущен...")
+        self.application.run_polling()
+
     def __init__(self):
         self.token = os.getenv('TELEGRAM_BOT_TOKEN')
         allowed_users_str = os.getenv('ALLOWED_USER_IDS', '')
@@ -44,6 +46,7 @@ class GasBot:
         else:
             self.allowed_user_ids = []
         self.admin_user_id = int(os.getenv('ADMIN_USER_ID', 0))
+
         # Автоматически добавляем админа в разрешенные, если его там нет
         if self.admin_user_id and self.admin_user_id not in self.allowed_user_ids:
             self.allowed_user_ids.append(self.admin_user_id)
@@ -59,6 +62,9 @@ class GasBot:
             raise ValueError("TELEGRAM_BOT_TOKEN не найден в переменных окружения")
 
         self.application = Application.builder().token(self.token).build()
+
+        # Добавляем обработчик ошибок
+        self.application.add_error_handler(self.error_handler)
 
         # Обработчики команд
         self.application.add_handler(CommandHandler("start", self.start_command))
@@ -77,15 +83,35 @@ class GasBot:
             self.handle_gas_message
         ))
 
+
+    async def error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE):
+        """Обработчик ошибок"""
+        logging.error(f"Exception while handling an update: {context.error}", exc_info=context.error)
+
+        # Если это конфликт с другим экземпляром бота - игнорируем
+        if "Conflict: terminated by other getUpdates request" in str(context.error):
+            logging.warning("Обнаружен конфликт с другим экземпляром бота. Проверьте, что запущен только один экземпляр.")
+            return
+
+        # Для других ошибок пытаемся уведомить пользователя
+        if isinstance(update, Update) and update.effective_message:
+            try:
+                await update.effective_message.reply_text(
+                    "❌ Произошла ошибка при обработке сообщения. Попробуйте еще раз."
+                )
+            except:
+                pass
+
+
     async def is_user_allowed(self, user_id: int) -> bool:
         """Проверяет, разрешен ли пользователь"""
         return user_id in self.allowed_user_ids
+
 
     async def my_id_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Показывает ID пользователя (работает для всех, даже неавторизованных)"""
         user = update.message.from_user
 
-        # Формируем информацию о пользователе БЕЗ Markdown разметки
         user_info = (
             f"👤 Ваши данные:\n"
             f"ID: {user.id}\n"
@@ -101,7 +127,6 @@ class GasBot:
                 "Перешлите этот ID администратору для добавления."
             )
 
-        # Отправляем БЕЗ parse_mode
         await update.message.reply_text(user_info)
 
         # Уведомляем администратора о запросе ID
@@ -179,7 +204,6 @@ class GasBot:
                 await context.bot.send_message(
                     chat_id=self.admin_user_id,
                     text=notification
-                    # Без parse_mode для безопасности
                 )
             except Exception as e:
                 print(f"Не удалось уведомить администратора: {e}")
@@ -194,11 +218,9 @@ class GasBot:
         parsed_data['sender_name'] = f"{user.first_name} {user.last_name or ''}"
 
         # АВТОМАТИЧЕСКОЕ ЗАПОЛНЕНИЕ ПОЛУЧАТЕЛЯ для оплат
-        # Если есть сумма денег, но нет получателя - ставим отправителя
         if parsed_data['amount'] and not parsed_data['receiver']:
             parsed_data['receiver'] = user.first_name
 
-        # Сохраняем в БД
         session = self.db.get_session()
         try:
             # Проверяем дубликаты
@@ -207,21 +229,84 @@ class GasBot:
                 await update.message.reply_text("⚠️ Это сообщение уже было обработано")
                 return
 
+            # Создаем запись
             record = GasRecord(**parsed_data)
-            session.add(record)
-            session.commit()
+
+            # Обрабатываем логику оплат и предоплат
+            if record.room:
+                # СЛУЧАЙ 1: Взятие газа (quantity < 0)
+                if record.quantity and record.quantity < 0:
+                    # Проверяем, была ли предоплата
+                    prepayment = self.parser.find_prepayment_record(session, record.room)
+
+                    if prepayment:
+                        # Есть предоплата - заполняем данные о газе в запись с предоплатой
+                        prepayment.quantity = record.quantity
+                        prepayment.capacity = record.capacity
+                        if record.comments:
+                            prepayment.comments = record.comments
+                        # Связываем записи
+                        record.linked_record_id = prepayment.id
+
+                        session.add(record)
+                        session.commit()
+
+                        await update.message.reply_text(
+                            f"✅ Запись добавлена и связана с предоплатой!\n"
+                            f"Предоплата: {prepayment.amount} руб. от {prepayment.payment_date.strftime('%d.%m.%Y')}"
+                        )
+                    elif record.amount:
+                        # Взятие газа сразу с оплатой
+                        record.payment_date = record.date
+                        session.add(record)
+                        session.commit()
+                    else:
+                        # Взятие газа без оплаты
+                        session.add(record)
+                        session.commit()
+
+                # СЛУЧАЙ 2: Оплата без взятия газа (только amount, без quantity)
+                elif record.amount and not record.quantity:
+                    # Ищем неоплаченный расход газа
+                    unpaid_gas = self.parser.find_unpaid_gas_record(session, record.room)
+
+                    if unpaid_gas:
+                        # Нашли неоплаченный газ - добавляем к нему оплату
+                        unpaid_gas.amount = record.amount
+                        unpaid_gas.receiver = record.receiver
+                        unpaid_gas.payment_date = record.date
+                        # Связываем записи
+                        record.linked_record_id = unpaid_gas.id
+
+                        session.add(record)
+                        session.commit()
+
+                        await update.message.reply_text(
+                            f"✅ Оплата добавлена к расходу от {unpaid_gas.date.strftime('%d.%m.%Y')}!"
+                        )
+                    else:
+                        # Это предоплата
+                        record.payment_date = record.date
+                        session.add(record)
+                        session.commit()
+
+                        await update.message.reply_text("✅ Предоплата зарегистрирована!")
+                else:
+                    # Приход баллонов или другие случаи
+                    session.add(record)
+                    session.commit()
+            else:
+                # Нет комнаты (например, приход баллонов)
+                session.add(record)
+                session.commit()
+
             session.refresh(record)
 
-            # Ищем связанные записи ТОЛЬКО если есть комната
-            if record.room:
-                linked_record = self.parser.find_linked_record(session, record)
-                if linked_record:
-                    if record.amount and not record.quantity:
-                        linked_record.linked_record_id = record.id
-                    elif record.quantity and record.quantity < 0:
-                        record.linked_record_id = linked_record.id
-                    session.commit()
-
+        except Exception as e:
+            session.rollback()
+            logging.error(f"Error processing gas message: {e}", exc_info=True)
+            await update.message.reply_text("❌ Ошибка при обработке сообщения")
+            return
         finally:
             session.close()
 
@@ -232,21 +317,14 @@ class GasBot:
         # Рассылаем уведомления всем пользователям
         await self.notify_all_users(context, notification, exclude_user_id=user.id)
 
-        # Подтверждение отправителю
+        # Подтверждение отправителю (если еще не отправлено)
         balance_27, balance_12 = self.db.get_balance()
-        response = f"✅ Запись добавлена!\n\n📊 Текущий остаток: {balance_27}" # (27л), {balance_12} (12л)"
-        await update.message.reply_text(response)
+        response = f"✅ Запись добавлена!\n\n📊 Текущий остаток: {balance_27}"
+        try:
+            await update.message.reply_text(response)
+        except:
+            pass  # Сообщение уже могло быть отправлено выше
 
-    async def handle_channel_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обрабатывает команды в канале"""
-        message = update.channel_post or update.message
-        if not message:
-            return
-
-        command = message.text.split()[0].lower()
-
-        if command == '/get_channel_id':
-            await self.get_channel_id_command(update, context)
 
     async def notify_all_users(self, context, message, exclude_user_id=None):
         """Рассылает сообщение всем пользователям кроме исключенного"""
@@ -260,66 +338,13 @@ class GasBot:
 
     def is_valid_gas_message(self, text):
         """Проверяет, является ли сообщение валидной записью о газе"""
-        # Парсим сообщение для проверки
         parsed_data = self.parser.parse_message(text)
 
         has_quantity = parsed_data['quantity'] is not None
         has_amount = parsed_data['amount'] is not None
-        has_room = parsed_data['room'] is not None
 
-        # Валидные случаи:
-
-        # 1. Любое сообщение с количеством баллонов (приход/расход)
-        if has_quantity:
-            return True
-
-        # 2. Любое сообщение с суммой денег (оплата/предоплата)
-        if has_amount:
-            return True
-
-        # 3. Если есть только комната - это запрос истории
-        if has_room and not (has_quantity or has_amount):
-            return False
-
-        return False
-
-    async def get_channel_id_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда для получения ID канала"""
-        # Определяем, откуда пришло сообщение - из канала или личного чата
-        if update.channel_post:
-            message_obj = update.channel_post
-        elif update.message:
-            message_obj = update.message
-        else:
-            return  # Если нет сообщения, выходим
-
-        chat = message_obj.chat
-
-        if chat.type in ['channel', 'group', 'supergroup']:
-            message = (
-                f"📋 Информация о чате:\n"
-                f"ID: `{chat.id}`\n"
-                f"Название: {chat.title}\n"
-                f"Тип: {chat.type}\n"
-                f"Username: @{chat.username or 'нет'}"
-            )
-
-            # Если это канал, предлагаем сохранить ID
-            if chat.type == 'channel':
-                message += f"\n\n💡 Добавьте в .env файл:\nTELEGRAM_CHANNEL_ID={chat.id}"
-
-            # Отправляем ответ в тот же чат
-            await context.bot.send_message(
-                chat_id=chat.id,
-                text=message,
-                parse_mode=ParseMode.HTML
-            )
-        else:
-            await context.bot.send_message(
-                chat_id=chat.id,
-                text="Эта команда работает только в каналах и группах. "
-                     "Добавьте бота в канал и используйте команду там."
-            )
+        # Валидные случаи: есть количество баллонов ИЛИ есть сумма денег
+        return has_quantity or has_amount
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработчик команды /start"""
@@ -379,96 +404,38 @@ class GasBot:
 
             # Добавляем текущий баланс
             balance_27, balance_12 = self.db.get_balance()
-            message += f"\n📊 Текущий остаток: {balance_27}" # (27л), {balance_12} (12л)"
+            message += f"\n📊 Текущий остаток: {balance_27}"
 
             await update.message.reply_text(message)
         finally:
             session.close()
 
-    def format_record(self, record_data: dict) -> str:
-        """Форматирует запись для отображения из словаря"""
+    def format_record(self, record: GasRecord) -> str:
+        """Форматирует запись для отображения из объекта GasRecord"""
         parts = []
 
-        if record_data.get('quantity') is not None:
-            sign = "+" if record_data['quantity'] > 0 else ""
-            capacity = record_data.get('capacity', 27)
-            parts.append(f"{sign}{record_data['quantity']} баллон(ов) {capacity}л")
+        if record.quantity is not None:
+            sign = "+" if record.quantity > 0 else ""
+            capacity = record.capacity if record.capacity else 27
+            parts.append(f"{sign}{record.quantity} баллон(ов) {capacity}л")
 
-        if record_data.get('room'):
-            parts.append(f"комната {record_data['room']}")
+        if record.room:
+            parts.append(f"комната {record.room}")
 
-        if record_data.get('amount'):
-            parts.append(f"{record_data['amount']} руб")
+        if record.amount:
+            parts.append(f"{record.amount} руб")
 
-        if record_data.get('receiver'):
-            parts.append(f"получил {record_data['receiver']}")
+        if record.receiver:
+            parts.append(f"получил {record.receiver}")
 
-        if record_data.get('comments'):
-            parts.append(f"({record_data['comments']})")
+        if record.payment_date and record.amount:
+            parts.append(f"оплачено {record.payment_date.strftime('%d.%m.%Y')}")
+
+        if record.comments:
+            parts.append(f"({record.comments})")
 
         return " | ".join(parts)
 
-    async def handle_channel_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обрабатывает сообщения в канале"""
-        message = update.channel_post or update.message
-        if not message:
-            return
-
-        # Парсим сообщение
-        parsed_data = self.parser.parse_message(message.text)
-        parsed_data['message_id'] = message.message_id
-        parsed_data['date'] = message.date
-
-        # Вся работа в одной сессии
-        session = self.db.get_session()
-        try:
-            # Проверяем, существует ли уже запись
-            existing = session.query(GasRecord).filter_by(message_id=parsed_data['message_id']).first()
-            if existing:
-                record = existing
-            else:
-                record = GasRecord(**parsed_data)
-                session.add(record)
-                session.commit()
-                session.refresh(record)  # Обновляем объект после коммита
-
-            # Ищем связанные записи (теперь record привязан к сессии)
-            linked_record = self.parser.find_linked_record(session, record)
-            if linked_record:
-                if record.amount and not record.quantity:
-                    linked_record.linked_record_id = record.id
-                elif record.quantity and record.quantity < 0:
-                    record.linked_record_id = linked_record.id
-                session.commit()
-        finally:
-            session.close()
-
-        # Публикуем обновленный баланс
-        balance_27, balance_12 = self.db.get_balance()
-        balance_message = f"📊 Остаток: {balance_27} баллон(ов) 27л"
-        if balance_12 > 0:
-            balance_message += f", {balance_12} баллон(ов) 12л"
-
-        await context.bot.send_message(
-            chat_id=message.chat_id,
-            text=balance_message
-        )
-
-    async def handle_private_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обрабатывает личные сообщения боту"""
-        text = update.message.text.strip()
-
-        # Проверяем, является ли текст номером комнаты
-        if re.match(r'^\d+\.\d+$', text) or text.lower() in ['дом', 'домой']:
-            room = text.lower() if text.lower() in ['дом', 'домой'] else text
-            await self.show_room_history(update, room)
-        else:
-            await update.message.reply_text(
-                "Не понимаю команду. Используйте:\n"
-                "/balance - остаток баллонов\n"
-                "/last - последние движения\n"
-                "Или напишите номер комнаты для просмотра истории"
-            )
 
     async def show_room_history(self, update: Update, room: str):
         """Показывает историю по комнате"""
@@ -494,10 +461,6 @@ class GasBot:
 
         await update.message.reply_text(message)
 
-    def run(self):
-        """Запускает бота"""
-        print("Бот запущен...")
-        self.application.run_polling()
 
     async def web_last_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Открывает Web App с последними движениями"""
