@@ -96,7 +96,7 @@ def mock_context():
 
 
 @pytest.fixture
-async def gas_bot(test_db, monkeypatch):
+def gas_bot(test_db, monkeypatch):
     """
     Создает экземпляр бота для тестов.
     Использует тестовую БД и моканные переменные окружения.

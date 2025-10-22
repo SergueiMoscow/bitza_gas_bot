@@ -125,7 +125,6 @@ class MessageParser:
             GasRecord.amount > 0,
             GasRecord.payment_date.isnot(None),
             GasRecord.quantity.is_(None),
-            GasRecord.linked_record_id.is_(None)
         ).order_by(GasRecord.payment_date.desc()).first()
 
         return prepayment

@@ -236,6 +236,7 @@ class GasBot:
             if record.room:
                 # СЛУЧАЙ 1: Взятие газа (quantity < 0)
                 if record.quantity and record.quantity < 0:
+                    record.gas_taken_date = update.message.date
                     # Проверяем, была ли предоплата
                     prepayment = self.parser.find_prepayment_record(session, record.room)
 
@@ -243,18 +244,20 @@ class GasBot:
                         # Есть предоплата - заполняем данные о газе в запись с предоплатой
                         prepayment.quantity = record.quantity
                         prepayment.capacity = record.capacity
+                        prepayment.gas_taken_date = update.message.date
                         if record.comments:
-                            prepayment.comments = record.comments
+                            prepayment.comments = '/'.join([prepayment.comments, record.comments])
                         # Связываем записи
-                        record.linked_record_id = prepayment.id
+                        # record.linked_record_id = prepayment.id
 
-                        session.add(record)
+                        session.add(prepayment)
                         session.commit()
 
                         await update.message.reply_text(
-                            f"✅ Запись добавлена и связана с предоплатой!\n"
+                            f"✅ Запись связана с предоплатой!\n"
                             f"Предоплата: {prepayment.amount} руб. от {prepayment.payment_date.strftime('%d.%m.%Y')}"
                         )
+                        record = prepayment
                     elif record.amount:
                         # Взятие газа сразу с оплатой
                         record.payment_date = record.date
@@ -276,10 +279,11 @@ class GasBot:
                         unpaid_gas.receiver = record.receiver
                         unpaid_gas.payment_date = record.date
                         # Связываем записи
-                        record.linked_record_id = unpaid_gas.id
+                        # record.linked_record_id = unpaid_gas.id
 
-                        session.add(record)
+                        session.add(unpaid_gas)
                         session.commit()
+                        record = unpaid_gas
 
                         await update.message.reply_text(
                             f"✅ Оплата добавлена к расходу от {unpaid_gas.date.strftime('%d.%m.%Y')}!"
@@ -319,7 +323,8 @@ class GasBot:
 
         # Подтверждение отправителю (если еще не отправлено)
         balance_27, balance_12 = self.db.get_balance()
-        response = f"✅ Запись добавлена!\n\n📊 Текущий остаток: {balance_27}"
+        # response = f"✅ Запись добавлена!\n\n📊 Текущий остаток: {balance_27}"
+        response = f"📊 Текущий остаток: {balance_27}"
         try:
             await update.message.reply_text(response)
         except:
@@ -430,6 +435,9 @@ class GasBot:
 
         if record.payment_date and record.amount:
             parts.append(f"оплачено {record.payment_date.strftime('%d.%m.%Y')}")
+
+        if record.gas_taken_date and record.quantity and record.quantity < 0:
+            parts.append(f"взято {record.gas_taken_date.strftime('%d.%m.%Y')}")
 
         if record.comments:
             parts.append(f"({record.comments})")

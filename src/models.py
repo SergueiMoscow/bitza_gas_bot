@@ -12,9 +12,13 @@ class GasRecord(Base):
     id = Column(Integer, primary_key=True)
     message_id = Column(Integer, unique=True, nullable=False)
     date = Column(DateTime, default=datetime.now)
+    # Дата взятия газа
+    gas_taken_date = Column(DateTime, nullable=True)
     quantity = Column(Integer)
     capacity = Column(Integer, default=27)
     room = Column(String(20))
+    # Дата оплаты
+    payment_date = Column(DateTime, nullable=True)
     amount = Column(Float)
     receiver = Column(String(100))
     comments = Column(Text)
@@ -23,8 +27,3 @@ class GasRecord(Base):
     # Поля для пользователя
     sender_user_id = Column(Integer)
     sender_name = Column(String(200))
-
-    # Дата оплаты
-    payment_date = Column(DateTime, nullable=True)
-
-    linked_record = relationship('GasRecord', remote_side=[id], backref='linked_records')

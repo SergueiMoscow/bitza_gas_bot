@@ -1,152 +1,250 @@
-import sys
-import os
+import pytest
+from datetime import datetime
+from src.database import Database
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from models import Base, GasRecord
-
-sys.path.append(os.path.dirname(__file__))
-
-try:
-    from config import DATABASE_URL
-except ImportError:
-    from src.config import DATABASE_URL
+from src.models import GasRecord
 
 
-class Database:
-    def __init__(self, db_url=None):
-        # Если запущены тесты - используем тестовую БД
-        if 'pytest' in sys.modules:
-            db_url = 'sqlite:///test_gas.db'
-            print(f"🧪 Test mode: using {db_url}")
-        elif db_url is None:
-            db_url = DATABASE_URL
+class TestDatabase:
+    """Тесты для класса Database"""
 
-        self.db_url = db_url
-        self.engine = create_engine(db_url)
-        Base.metadata.create_all(self.engine)
-        self.Session = sessionmaker(bind=self.engine)
-
-    def get_session(self):
-        return self.Session()
-
-    def add_record(self, record_data):
-        """Добавляет новую запись в БД"""
-        session = self.get_session()
-        try:
-            # Проверяем, существует ли уже запись с таким message_id
-            existing = session.query(GasRecord).filter_by(
-                message_id=record_data['message_id']
-            ).first()
-            if existing:
-                return existing
-
-            record = GasRecord(**record_data)
-            session.add(record)
-            session.commit()
-            session.refresh(record)
-            return record
-        except Exception as e:
-            session.rollback()
-            raise e
-        finally:
-            session.close()
-
-    def record_to_dict(self, record):
-        """Конвертирует объект GasRecord в словарь"""
-        if record is None:
-            return None
-
-        return {
-            'id': record.id,
-            'message_id': record.message_id,
-            'date': record.date,
-            'quantity': record.quantity,
-            'capacity': record.capacity,
-            'room': record.room,
-            'amount': record.amount,
-            'receiver': record.receiver,
-            'comments': record.comments,
-            'linked_record_id': record.linked_record_id,
-            'sender_user_id': record.sender_user_id,
-            'sender_name': record.sender_name,
-            'payment_date': record.payment_date
+    def test_add_record(self, test_db):
+        """Тест добавления записи в БД"""
+        record_data = {
+            'message_id': 1001,
+            'date': datetime.now(),
+            'quantity': 5,
+            'capacity': 27,
+            'sender_user_id': 12345,
+            'sender_name': 'Test User'
         }
 
-    def get_record_by_id(self, record_id):
-        """Получает запись по ID"""
-        session = self.get_session()
-        try:
-            return session.query(GasRecord).filter_by(id=record_id).first()
-        finally:
-            session.close()
+        record = test_db.add_record(record_data)
+        assert record is not None
+        assert record.id is not None
+        assert record.quantity == 5
 
-    def get_last_record(self):
-        """Получает последнюю запись"""
-        session = self.get_session()
-        try:
-            return session.query(GasRecord).order_by(GasRecord.id.desc()).first()
-        finally:
-            session.close()
+    def test_add_duplicate_message_id(self, test_db):
+        """Тест добавления записи с дублирующимся message_id"""
+        record_data = {
+            'message_id': 1002,
+            'date': datetime.now(),
+            'quantity': 3,
+            'capacity': 27
+        }
 
-    def get_record_by_message_id(self, message_id):
-        """Получает запись по message_id"""
-        session = self.get_session()
-        try:
-            return session.query(GasRecord).filter_by(message_id=message_id).first()
-        finally:
-            session.close()
+        # Первая запись
+        record1 = test_db.add_record(record_data)
 
-    def get_records_by_room(self, room, limit=10):
-        """Получает записи по комнате"""
-        session = self.get_session()
-        try:
-            return session.query(GasRecord).filter(
-                GasRecord.room == room
-            ).order_by(GasRecord.id.desc()).limit(limit).all()
-        finally:
-            session.close()
+        # Вторая запись с тем же message_id
+        record2 = test_db.add_record(record_data)
 
-    def get_balance(self):
-        """Вычисляет текущий баланс баллонов"""
-        session = self.get_session()
-        try:
-            records = session.query(GasRecord).all()
-            balance_27 = 0
-            balance_12 = 0
+        assert record1.id == record2.id  # Должна вернуться существующая запись
 
-            for record in records:
-                if record.quantity:
-                    if record.capacity == 27:
-                        balance_27 += record.quantity
-                    elif record.capacity == 12:
-                        balance_12 += record.quantity
+    def test_get_record_by_id(self, test_db):
+        """Тест получения записи по ID"""
+        record_data = {
+            'message_id': 1003,
+            'date': datetime.now(),
+            'quantity': -1,
+            'capacity': 27,
+            'room': '1.01'
+        }
 
-            return balance_27, balance_12
-        finally:
-            session.close()
+        added_record = test_db.add_record(record_data)
+        retrieved_record = test_db.get_record_by_id(added_record.id)
 
-    def clear_all_records(self):
-        """Удаляет все записи (только для тестов!)"""
-        if 'test' not in self.db_url:
-            raise RuntimeError(
-                "🚨 DANGER: Попытка очистить production БД! "
-                "Метод clear_all_records() можно использовать только с тестовой БД."
-            )
+        assert retrieved_record is not None
+        assert retrieved_record.id == added_record.id
+        assert retrieved_record.room == '1.01'
 
-        session = self.get_session()
-        try:
-            session.query(GasRecord).delete()
-            session.commit()
-        finally:
-            session.close()
+    def test_get_last_record(self, test_db):
+        """Тест получения последней записи"""
+        # Добавляем несколько записей
+        test_db.add_record({
+            'message_id': 1004,
+            'date': datetime.now(),
+            'quantity': 10,
+            'capacity': 27
+        })
 
-    def drop_all_tables(self):
-        """Удаляет все таблицы (только для тестов!)"""
-        if 'test' not in self.db_url:
-            raise RuntimeError(
-                "🚨 DANGER: Попытка удалить production БД! "
-                "Метод drop_all_tables() можно использовать только с тестовой БД."
-            )
+        test_db.add_record({
+            'message_id': 1005,
+            'date': datetime.now(),
+            'quantity': -2,
+            'capacity': 27,
+            'room': '2.01'
+        })
 
-        Base.metadata.drop_all(self.engine)
+        last_record = test_db.get_last_record()
+        assert last_record is not None
+        assert last_record.message_id == 1005
+
+    def test_get_records_by_room(self, test_db):
+        """Тест получения записей по комнате"""
+        # Добавляем записи для разных комнат
+        test_db.add_record({
+            'message_id': 1006,
+            'date': datetime.now(),
+            'quantity': -1,
+            'capacity': 27,
+            'room': '1.01'
+        })
+
+        test_db.add_record({
+            'message_id': 1007,
+            'date': datetime.now(),
+            'quantity': -1,
+            'capacity': 27,
+            'room': '2.01'
+        })
+
+        test_db.add_record({
+            'message_id': 1008,
+            'date': datetime.now(),
+            'quantity': -1,
+            'capacity': 27,
+            'room': '1.01'
+        })
+
+        records = test_db.get_records_by_room('1.01')
+        assert len(records) == 2
+        assert all(record.room == '1.01' for record in records)
+
+    def test_get_balance(self, test_db):
+        """Тест расчета баланса"""
+        # Приход 27л
+        test_db.add_record({
+            'message_id': 1009,
+            'date': datetime.now(),
+            'quantity': 10,
+            'capacity': 27
+        })
+
+        # Приход 12л
+        test_db.add_record({
+            'message_id': 1010,
+            'date': datetime.now(),
+            'quantity': 5,
+            'capacity': 12
+        })
+
+        # Расход 27л
+        test_db.add_record({
+            'message_id': 1011,
+            'date': datetime.now(),
+            'quantity': -3,
+            'capacity': 27,
+            'room': '1.01'
+        })
+
+        # Расход 12л
+        test_db.add_record({
+            'message_id': 1012,
+            'date': datetime.now(),
+            'quantity': -2,
+            'capacity': 12,
+            'room': '2.01'
+        })
+
+        balance_27, balance_12 = test_db.get_balance()
+        assert balance_27 == 7  # 10 - 3
+        assert balance_12 == 3  # 5 - 2
+
+    def test_record_to_dict(self, test_db):
+        """Тест конвертации записи в словарь"""
+        record_data = {
+            'message_id': 1013,
+            'date': datetime.now(),
+            'quantity': -1,
+            'capacity': 27,
+            'room': '3.01',
+            'amount': 1000,
+            'receiver': 'Иван',
+            'sender_user_id': 12345,
+            'sender_name': 'Test User'
+        }
+
+        record = test_db.add_record(record_data)
+        record_dict = test_db.record_to_dict(record)
+
+        assert isinstance(record_dict, dict)
+        assert record_dict['quantity'] == -1
+        assert record_dict['room'] == '3.01'
+        assert record_dict['amount'] == 1000
+        assert record_dict['receiver'] == 'Иван'
+
+    def test_clear_all_records(self, test_db):
+        """Тест очистки всех записей"""
+        # Добавляем записи
+        test_db.add_record({
+            'message_id': 1014,
+            'date': datetime.now(),
+            'quantity': 5,
+            'capacity': 27
+        })
+
+        # Проверяем что записи есть
+        assert test_db.get_last_record() is not None
+
+        # Очищаем
+        test_db.clear_all_records()
+
+        # Проверяем что записей нет
+        assert test_db.get_last_record() is None
+
+    def test_get_record_by_message_id(self, test_db):
+        """Тест получения записи по message_id"""
+        record_data = {
+            'message_id': 1015,
+            'date': datetime.now(),
+            'quantity': 8,
+            'capacity': 27
+        }
+
+        added_record = test_db.add_record(record_data)
+        retrieved_record = test_db.get_record_by_message_id(1015)
+
+        assert retrieved_record is not None
+        assert retrieved_record.id == added_record.id
+        assert retrieved_record.message_id == 1015
+
+
+class TestDatabaseEdgeCases:
+    """Тесты граничных случаев для Database"""
+
+    def test_empty_database(self, test_db):
+        """Тест работы с пустой БД"""
+        assert test_db.get_last_record() is None
+        assert test_db.get_record_by_id(999) is None
+        assert test_db.get_record_by_message_id(999) is None
+
+        balance_27, balance_12 = test_db.get_balance()
+        assert balance_27 == 0
+        assert balance_12 == 0
+
+        records = test_db.get_records_by_room('1.01')
+        assert records == []
+
+    def test_record_to_dict_none(self, test_db):
+        """Тест конвертации None в record_to_dict"""
+        result = test_db.record_to_dict(None)
+        assert result is None
+
+    def test_balance_only_arrivals(self, test_db):
+        """Тест баланса только с приходом"""
+        test_db.add_record({'message_id': 1016, 'date': datetime.now(), 'quantity': 15, 'capacity': 27})
+        test_db.add_record({'message_id': 1017, 'date': datetime.now(), 'quantity': 8, 'capacity': 12})
+
+        balance_27, balance_12 = test_db.get_balance()
+        assert balance_27 == 15
+        assert balance_12 == 8
+
+    def test_balance_only_consumption(self, test_db):
+        """Тест баланса только с расходом"""
+        test_db.add_record({'message_id': 1018, 'date': datetime.now(), 'quantity': -5, 'capacity': 27})
+        test_db.add_record({'message_id': 1019, 'date': datetime.now(), 'quantity': -3, 'capacity': 12})
+
+        balance_27, balance_12 = test_db.get_balance()
+        assert balance_27 == -5
+        assert balance_12 == -3
