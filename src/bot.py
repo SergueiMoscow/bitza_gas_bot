@@ -3,7 +3,7 @@ import re
 import sys
 from datetime import datetime
 
-from telegram import Update, InlineKeyboardButton, WebAppInfo, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, WebAppInfo, InlineKeyboardMarkup, BotCommand, MenuButtonCommands
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from telegram.constants import ParseMode
 from dotenv import load_dotenv
@@ -30,6 +30,22 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
+
+
+async def _setup_commands(application: Application):
+    """Устанавливает список команд в меню Telegram."""
+    commands = [
+        BotCommand("balance", "остаток"),
+        BotCommand("web_last", "последние"),
+        BotCommand("web_debts", "долги"),
+        BotCommand("start", "начать"),
+    ]
+
+    # application.bot - это объект Bot, который используется для вызова методов API
+    await application.bot.set_my_commands(commands)
+    await application.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
+
+    logging.info("Список команд Telegram меню успешно установлен.")
 
 
 class GasBot:
@@ -61,10 +77,14 @@ class GasBot:
         if not self.token:
             raise ValueError("TELEGRAM_BOT_TOKEN не найден в переменных окружения")
 
-        self.application = Application.builder().token(self.token).build()
+        self.application = Application.builder().token(self.token).post_init(_setup_commands).build()
 
         # Добавляем обработчик ошибок
         self.application.add_error_handler(self.error_handler)
+
+        # mini apps handlers
+        self.application.add_handler(CommandHandler("web_last", self.web_last_command))
+        self.application.add_handler(CommandHandler("web_debts", self.web_debts_command))
 
         # Обработчики команд
         self.application.add_handler(CommandHandler("start", self.start_command))
@@ -73,9 +93,6 @@ class GasBot:
         self.application.add_handler(CommandHandler("my_id", self.my_id_command))
         self.application.add_handler(CommandHandler("users", self.users_command))
 
-        # mini apps handlers
-        self.application.add_handler(CommandHandler("web_last", self.web_last_command))
-        self.application.add_handler(CommandHandler("web_debts", self.web_debts_command))
 
         # Обработчик сообщений о газе
         self.application.add_handler(MessageHandler(
