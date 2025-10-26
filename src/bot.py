@@ -36,8 +36,10 @@ async def _setup_commands(application: Application):
     """Устанавливает список команд в меню Telegram."""
     commands = [
         BotCommand("balance", "остаток"),
-        BotCommand("web_last", "последние"),
-        BotCommand("web_debts", "долги"),
+        BotCommand("last", "последние"),
+        BotCommand("debts", "долги (app)"),
+        BotCommand("web_last", "последние (app)"),
+        BotCommand("web_debts", "долги (app)"),
         BotCommand("start", "начать"),
     ]
 
@@ -464,13 +466,14 @@ class GasBot:
 
     async def show_room_history(self, update: Update, room: str):
         """Показывает историю по комнате"""
-        records = self.db.get_records_by_room(room, limit=15)
+        normalized_room = MessageParser.normalize_room_number(room)
+        records = self.db.get_records_by_room(normalized_room, limit=15)
 
         if not records:
-            await update.message.reply_text(f"Нет записей для комнаты {room}")
+            await update.message.reply_text(f"Нет записей для комнаты {normalized_room}")
             return
 
-        message = f"📋 История по комнате {room}:\n\n"
+        message = f"📋 История по комнате {normalized_room}:\n\n"
         total_owed = 0
         total_paid = 0
 
